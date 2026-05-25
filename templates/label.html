@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ action.action_id }} — MVFouls Labeler</title>
+  <link rel="stylesheet" href="/static/main.css">
+</head>
+<body class="label-page">
+
+  <!-- ── Flash Overlay ─────────────────────────────────────────── -->
+  <div id="flash" class="flash-overlay" aria-hidden="true">
+    <div id="flash-text" class="flash-text"></div>
+  </div>
+
+  <!-- ── Unclear Modal ─────────────────────────────────────────── -->
+  <div id="unclear-modal" class="modal-overlay" style="display:none" onclick="handleModalBgClick(event)">
+    <div class="modal-box">
+      <h3>Mark as Unclear</h3>
+      <p class="modal-sub">Why is this unclear? <em>(optional — hit Confirm to skip)</em></p>
+      <div class="reason-buttons">
+        <button id="reason-camera"     class="reason-btn" onclick="toggleReason('camera')">
+          📷&nbsp; Can't see box lines (camera angle)
+        </button>
+        <button id="reason-borderline" class="reason-btn" onclick="toggleReason('borderline')">
+          📍&nbsp; Player is right on the line
+        </button>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel"  onclick="closeUnclearModal()">Cancel</button>
+        <button class="btn-confirm" onclick="submitUnclear()">Confirm →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Top Nav ───────────────────────────────────────────────── -->
+  <nav class="topnav">
+    <a href="/" class="nav-home">← Overview</a>
+
+    <div class="nav-center">
+      <span class="nav-progress-text">{{ idx + 1 }} / {{ total }}</span>
+      <div class="nav-progress-bar">
+        <div class="nav-progress-fill" style="width:{{ ((idx + 1) / total * 100) | round(2) }}%"></div>
+      </div>
+    </div>
+
+    <div class="nav-btns">
+      {% if prev_action %}
+      <a href="/label/{{ prev_action.split }}/{{ prev_action.action_id }}" class="nav-btn">← Prev</a>
+      {% else %}
+      <span class="nav-btn nav-btn-disabled">← Prev</span>
+      {% endif %}
+
+      {% if next_action %}
+      <a href="/label/{{ next_action.split }}/{{ next_action.action_id }}" class="nav-btn">Next →</a>
+      {% else %}
+      <span class="nav-btn nav-btn-disabled">Next →</span>
+      {% endif %}
+
+      {% if next_unlabeled %}
+      <a href="/label/{{ next_unlabeled.split }}/{{ next_unlabeled.action_id }}" class="nav-btn nav-btn-accent">⚡ Unlabeled</a>
+      {% else %}
+      <span class="nav-btn nav-btn-disabled">✓ All done!</span>
+      {% endif %}
+    </div>
+  </nav>
+
+  <!-- ── Main Layout ───────────────────────────────────────────── -->
+  <main class="label-layout">
+
+    <!-- LEFT: Video -->
+    <div class="video-col">
+      <div class="video-wrapper">
+        <video id="video-player"
+               src="{{ action.clips[0].url }}"
+               autoplay loop controls playsinline
+               preload="auto">
+        </video>
+      </div>
+
+      {% if action.clips | length > 1 %}
+      <div class="clip-tabs">
+        {% for clip in action.clips %}
+        <button class="clip-tab {% if loop.index0 == 0 %}active{% endif %}"
+                onclick="switchClip('{{ clip.url }}', this)">
+          <span>{{ clip.camera_type }}</span>
+          {% if clip.replay_speed and clip.replay_speed != 1.0 %}
+          <span class="clip-speed">{{ clip.replay_speed }}×</span>
+          {% endif %}
+        </button>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- RIGHT: Controls -->
+    <div class="controls-col">
+
+      <!-- Action header -->
+      <div class="action-info-header">
+        <div class="action-id-row">
+          <span class="split-tag split-{{ action.split }}">{{ action.split }}</span>
+          <span class="action-id-text">{{ action.action_id }}</span>
+          {% if current_label %}
+          <span class="current-label-tag label-tag-{{ current_label.box_location }}">
+            {{ current_label.box_location | upper }}
+          </span>
+          {% endif %}
+        </div>
+        <div class="match-name">{{ action.match }}</div>
+      </div>
+
+      <!-- Metadata -->
+      <div class="meta-grid">
+        <div class="meta-item {% if action.offence == 'Offence' %}meta-offence{% elif action.offence == 'No offence' %}meta-no-offence{% elif action.offence == 'Between' %}meta-between{% endif %}">
+          <span class="meta-k">Offence</span>
+          <span class="meta-v">{{ action.offence or '—' }}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-k">Severity</span>
+          <span class="meta-v">{{ action.severity_label }}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-k">Action class</span>
+          <span class="meta-v">{{ action.action_class or '—' }}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-k">Bodypart</span>
+          <span class="meta-v">{{ action.bodypart or '—' }}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-k">Contact</span>
+          <span class="meta-v">{{ action.contact or '—' }}</span>
+        </div>
+        {% if action.try_to_play %}
+        <div class="meta-item">
+          <span class="meta-k">Try to play</span>
+          <span class="meta-v">{{ action.try_to_play }}</span>
+        </div>
+        {% endif %}
+        {% if action.handball == 'Handball' %}
+        <div class="meta-item meta-handball">
+          <span class="meta-k">Handball</span>
+          <span class="meta-v">⚠️ Yes</span>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Notes -->
+      <div class="notes-wrap">
+        <label class="notes-label" for="notes">Notes <span style="opacity:.5">(optional)</span></label>
+        <textarea id="notes" class="notes-input"
+                  placeholder="e.g. right on the line, player outside but challenge starts inside...">{{ current_label.notes if current_label else '' }}</textarea>
+      </div>
+
+      <!-- Label buttons -->
+      <div class="label-btns">
+        <button class="label-btn btn-inside"  onclick="submitLabel('inside')">
+          <kbd>I</kbd><span>Inside Box</span>
+        </button>
+        <button class="label-btn btn-outside" onclick="submitLabel('outside')">
+          <kbd>O</kbd><span>Outside Box</span>
+        </button>
+        <button class="label-btn btn-unclear" onclick="showUnclearModal()">
+          <kbd>U</kbd><span>Unclear</span>
+        </button>
+      </div>
+
+      <div class="kbd-hint">
+        <span>← → navigate</span>
+        <span>N → next unlabeled</span>
+        <span>Esc → cancel</span>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    // ── Video ──────────────────────────────────────────────────────
+    function switchClip(url, btn) {
+      const video = document.getElementById('video-player');
+      video.src = url;
+      video.play();
+      document.querySelectorAll('.clip-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+
+    // ── Label submission ───────────────────────────────────────────
+    let unclearReason = '';
+    let submitting = false;
+
+    function submitLabel(location, reason) {
+      if (submitting) return;
+      submitting = true;
+      const notes = document.getElementById('notes').value.trim();
+      fetch('/api/label', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          split:          '{{ action.split }}',
+          action_id:      '{{ action.action_id }}',
+          box_location:   location,
+          unclear_reason: reason || '',
+          notes:          notes,
+        }),
+      })
+      .then(r => r.json())
+      .then(data => showFlash(location, data.next_url))
+      .catch(() => { submitting = false; });
+    }
+
+    function showFlash(location, nextUrl) {
+      const flash = document.getElementById('flash');
+      const flashText = document.getElementById('flash-text');
+      const colors  = { inside: '#22c55e', outside: '#f97316', unclear: '#94a3b8' };
+      const labels  = { inside: 'INSIDE',  outside: 'OUTSIDE', unclear: 'UNCLEAR' };
+
+      flash.style.background = colors[location];
+      flashText.textContent  = labels[location];
+      flash.classList.add('flash-visible');
+
+      setTimeout(() => {
+        flash.classList.remove('flash-visible');
+        if (nextUrl) {
+          setTimeout(() => { window.location.href = nextUrl; }, 160);
+        } else {
+          submitting = false;
+        }
+      }, 560);
+    }
+
+    // ── Unclear modal ──────────────────────────────────────────────
+    function showUnclearModal() {
+      unclearReason = '';
+      document.getElementById('reason-camera').classList.remove('active');
+      document.getElementById('reason-borderline').classList.remove('active');
+      document.getElementById('unclear-modal').style.display = 'flex';
+    }
+
+    function closeUnclearModal() {
+      document.getElementById('unclear-modal').style.display = 'none';
+    }
+
+    function handleModalBgClick(e) {
+      if (e.target === document.getElementById('unclear-modal')) closeUnclearModal();
+    }
+
+    function toggleReason(r) {
+      unclearReason = unclearReason === r ? '' : r;
+      document.getElementById('reason-camera')    .classList.toggle('active', unclearReason === 'camera');
+      document.getElementById('reason-borderline').classList.toggle('active', unclearReason === 'borderline');
+    }
+
+    function submitUnclear() {
+      closeUnclearModal();
+      submitLabel('unclear', unclearReason);
+    }
+
+    // ── Keyboard shortcuts ─────────────────────────────────────────
+    document.addEventListener('keydown', e => {
+      const notesEl = document.getElementById('notes');
+      if (document.activeElement === notesEl) return;
+
+      const modalOpen = document.getElementById('unclear-modal').style.display !== 'none';
+      if (modalOpen) {
+        if (e.key === 'Escape') { closeUnclearModal(); e.preventDefault(); }
+        if (e.key === 'Enter')  { submitUnclear();     e.preventDefault(); }
+        return;
+      }
+
+      switch (e.key.toLowerCase()) {
+        case 'i':           submitLabel('inside');  e.preventDefault(); break;
+        case 'o':           submitLabel('outside'); e.preventDefault(); break;
+        case 'u':           showUnclearModal();     e.preventDefault(); break;
+        case 'arrowleft':
+          {% if prev_action %}
+          window.location.href = '/label/{{ prev_action.split }}/{{ prev_action.action_id }}';
+          {% endif %}
+          e.preventDefault(); break;
+        case 'arrowright':
+          {% if next_action %}
+          window.location.href = '/label/{{ next_action.split }}/{{ next_action.action_id }}';
+          {% endif %}
+          e.preventDefault(); break;
+        case 'n':
+          {% if next_unlabeled %}
+          window.location.href = '/label/{{ next_unlabeled.split }}/{{ next_unlabeled.action_id }}';
+          {% endif %}
+          e.preventDefault(); break;
+      }
+    });
+  </script>
+
+</body>
+</html>

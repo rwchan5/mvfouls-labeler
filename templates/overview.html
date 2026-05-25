@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MVFouls Labeler — Overview</title>
+  <link rel="stylesheet" href="/static/main.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="page-header">
+    <div class="header-title">
+      <h1>⚽ MVFouls Labeler</h1>
+      <p>Box location annotation — SoccerNet MVFouls dataset</p>
+    </div>
+    <div class="header-right">
+      {% if eta_str %}
+      <div class="eta-badge">⏱ {{ eta_str }}</div>
+      {% endif %}
+      <div class="stat-block">
+        <span class="stat-num">{{ labeled_count }}</span>
+        <span class="stat-den">/ {{ total }}</span>
+      </div>
+      <a href="/label/continue" class="continue-btn">Continue Labeling →</a>
+    </div>
+  </header>
+
+  <!-- Distribution bar -->
+  <div class="dist-section">
+    {% set pct_i = (counts.inside   / total * 100) | round(1) %}
+    {% set pct_o = (counts.outside  / total * 100) | round(1) %}
+    {% set pct_u = (counts.unclear  / total * 100) | round(1) %}
+    {% set pct_n = (counts.unlabeled/ total * 100) | round(1) %}
+    <div class="dist-bar">
+      <div class="dist-seg seg-inside"    style="width:{{ pct_i }}%" title="Inside {{ counts.inside }}"></div>
+      <div class="dist-seg seg-outside"   style="width:{{ pct_o }}%" title="Outside {{ counts.outside }}"></div>
+      <div class="dist-seg seg-unclear"   style="width:{{ pct_u }}%" title="Unclear {{ counts.unclear }}"></div>
+      <div class="dist-seg seg-unlabeled" style="width:{{ pct_n }}%" title="Unlabeled {{ counts.unlabeled }}"></div>
+    </div>
+    <div class="dist-legend">
+      <span class="legend-item"><span class="dot dot-inside"></span>   Inside {{ counts.inside }} ({{ pct_i }}%)</span>
+      <span class="legend-item"><span class="dot dot-outside"></span>  Outside {{ counts.outside }} ({{ pct_o }}%)</span>
+      <span class="legend-item"><span class="dot dot-unclear"></span>  Unclear {{ counts.unclear }} ({{ pct_u }}%)</span>
+      <span class="legend-item"><span class="dot dot-unlabeled"></span>Unlabeled {{ counts.unlabeled }} ({{ pct_n }}%)</span>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="filters">
+    <div class="filter-group">
+      <span class="filter-label">Label:</span>
+      <button class="filter-btn active"          onclick="setLabelFilter('all',       this)">All</button>
+      <button class="filter-btn"                  onclick="setLabelFilter('unlabeled', this)">Unlabeled</button>
+      <button class="filter-btn filter-inside"    onclick="setLabelFilter('inside',    this)">Inside</button>
+      <button class="filter-btn filter-outside"   onclick="setLabelFilter('outside',   this)">Outside</button>
+      <button class="filter-btn filter-unclear"   onclick="setLabelFilter('unclear',   this)">Unclear</button>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Split:</span>
+      <button class="filter-btn active" onclick="setSplitFilter('all',   this)">All</button>
+      <button class="filter-btn"        onclick="setSplitFilter('train', this)">Train</button>
+      <button class="filter-btn"        onclick="setSplitFilter('valid', this)">Valid</button>
+      <button class="filter-btn"        onclick="setSplitFilter('test',  this)">Test</button>
+    </div>
+    <div class="filter-group">
+      <input type="text" id="jump-input" class="search-input"
+             placeholder="Jump to action # + Enter"
+             onkeydown="handleJump(event)">
+    </div>
+  </div>
+
+  <!-- Split sections -->
+  {% for split in splits %}
+  {% set sd = splits_data[split] %}
+  <section class="split-section" data-split="{{ split }}">
+    <div class="split-header">
+      <h2>
+        <span class="split-badge split-{{ split }}">{{ split }}</span>
+        {{ sd.total }} actions
+      </h2>
+      <div class="split-mini-stats">
+        <span class="mini-inside">▮ {{ sd.inside }}</span>
+        <span class="mini-outside">▮ {{ sd.outside }}</span>
+        <span class="mini-unclear">▮ {{ sd.unclear }}</span>
+        <span class="mini-un">○ {{ sd.unlabeled }}</span>
+      </div>
+    </div>
+    <div class="action-grid" id="grid-{{ split }}">
+      {% for action in sd.actions %}
+      <a href="/label/{{ action.split }}/{{ action.action_id }}"
+         class="action-tile tile-{{ action.label or 'unlabeled' }}"
+         data-split="{{ action.split }}"
+         data-label="{{ action.label or 'unlabeled' }}"
+         data-num="{{ action.action_num }}"
+         title="{{ action.action_id }} | {{ action.offence or '—' }} | {{ action.action_class or '—' }}{% if action.label %} | {{ action.label | upper }}{% endif %}">
+        {{ action.action_num }}
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+
+  <script>
+    let labelFilter = 'all';
+    let splitFilter = 'all';
+
+    function applyFilters() {
+      document.querySelectorAll('.split-section').forEach(sec => {
+        const s = sec.dataset.split;
+        sec.style.display = (splitFilter === 'all' || splitFilter === s) ? '' : 'none';
+      });
+      document.querySelectorAll('.action-tile').forEach(tile => {
+        const lMatch = labelFilter === 'all' || tile.dataset.label === labelFilter;
+        const sMatch = splitFilter === 'all' || tile.dataset.split === splitFilter;
+        tile.style.display = (lMatch && sMatch) ? '' : 'none';
+      });
+    }
+
+    function setLabelFilter(val, btn) {
+      labelFilter = val;
+      document.querySelectorAll('.filter-group:nth-child(1) .filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      applyFilters();
+    }
+
+    function setSplitFilter(val, btn) {
+      splitFilter = val;
+      document.querySelectorAll('.filter-group:nth-child(2) .filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      applyFilters();
+    }
+
+    function handleJump(e) {
+      if (e.key !== 'Enter') return;
+      const num = e.target.value.trim();
+      // Try to find tile in visible split context
+      let tile = null;
+      if (splitFilter !== 'all') {
+        tile = document.querySelector(`.action-tile[data-split="${splitFilter}"][data-num="${num}"]`);
+      }
+      if (!tile) tile = document.querySelector(`.action-tile[data-num="${num}"]`);
+      if (tile) window.location.href = tile.href;
+    }
+  </script>
+
+</body>
+</html>
